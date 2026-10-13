@@ -30,12 +30,12 @@ const info = JSON.parse(await readFile(join(app, 'package-info.json'), 'utf8'));
 assert.equal(info.preview, false);
 assert.equal(info.version, version);
 const command = process.platform === 'win32' ? join(process.env.SystemRoot, 'System32', 'cmd.exe') : '/bin/bash';
-const args = process.platform === 'win32' ? ['/d','/c',`"${join(app,'Start Windows.cmd')}"`] : [join(app,'Start macOS.command')];
-const child = spawn(command,args,{cwd:destination,detached:process.platform!=='win32',env:{...process.env,HOME:destination,USERPROFILE:destination,PATH:'',BRAINBOX_NO_BROWSER:'1'},stdio:['ignore','pipe','pipe']});
+const args = process.platform === 'win32' ? ['/d','/s','/c',`""${join(app,'Start Windows.cmd')}""`] : [join(app,'Start macOS.command')];
+const child = spawn(command,args,{cwd:destination,windowsVerbatimArguments:process.platform==='win32',detached:process.platform!=='win32',env:{...process.env,HOME:destination,USERPROFILE:destination,PATH:'',BRAINBOX_NO_BROWSER:'1'},stdio:['ignore','pipe','pipe']});
 let output=''; child.stdout.on('data', b=>output+=b); child.stderr.on('data',b=>output+=b);
 try {
   let origin;
-  for (let i=0;i<150;i++) { origin=output.match(/http:\/\/localhost:\d+/)?.[0]; if(origin)break; if(child.exitCode!==null)throw Error('Portable launcher exited before readiness.'); await new Promise(r=>setTimeout(r,100)); }
+  for (let i=0;i<150;i++) { origin=output.match(/http:\/\/localhost:\d+/)?.[0]; if(origin)break; if(child.exitCode!==null)throw Error('Portable launcher exited before readiness: '+output.slice(-1000)); await new Promise(r=>setTimeout(r,100)); }
   assert.ok(origin, 'Launcher did not become ready.');
   assert.equal((await fetch(origin+'/health').then(r=>r.json())).app,'brain-box-duel');
   const html=await fetch(origin).then(r=>r.text()); assert.match(html, /<div id="root"/);
@@ -49,4 +49,4 @@ try {
   assert.notEqual(access.reason,'LICENSE_SETUP_UNAVAILABLE','Native SDK storage/config could not initialize.');
   const denied=await fetch(origin+'/api/license/activate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:'invalid-key'})});assert.equal(denied.status,403);
   console.log(JSON.stringify({target:`${process.platform}-${process.arch}`,version,sha256:artifact.sha256,bundledNode:true,startScript:true,frontend:true,network:true,licenseBoundary:true}));
-} finally { if(process.platform==='win32')execFileSync(join(process.env.SystemRoot,'System32','taskkill.exe'),['/pid',String(child.pid),'/T','/F']);else {try{process.kill(-child.pid,'SIGTERM');}catch{/* already stopped */}} }
+} finally { if(process.platform==='win32'){try{execFileSync(join(process.env.SystemRoot,'System32','taskkill.exe'),['/pid',String(child.pid),'/T','/F']);}catch(e){if(e.status!==128)throw e;}}else {try{process.kill(-child.pid,'SIGTERM');}catch{/* already stopped */}} }
