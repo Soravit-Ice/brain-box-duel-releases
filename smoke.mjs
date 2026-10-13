@@ -31,7 +31,7 @@ assert.equal(info.preview, false);
 assert.equal(info.version, version);
 const command = process.platform === 'win32' ? join(process.env.SystemRoot, 'System32', 'cmd.exe') : '/bin/bash';
 const args = process.platform === 'win32' ? ['/d','/c',`"${join(app,'Start Windows.cmd')}"`] : [join(app,'Start macOS.command')];
-const child = spawn(command,args,{cwd:destination,env:{...process.env,PATH:'',BRAINBOX_NO_BROWSER:'1'},stdio:['ignore','pipe','pipe']});
+const child = spawn(command,args,{cwd:destination,detached:process.platform!=='win32',env:{...process.env,HOME:destination,USERPROFILE:destination,PATH:'',BRAINBOX_NO_BROWSER:'1'},stdio:['ignore','pipe','pipe']});
 let output=''; child.stdout.on('data', b=>output+=b); child.stderr.on('data',b=>output+=b);
 try {
   let origin;
@@ -49,4 +49,4 @@ try {
   assert.notEqual(access.reason,'LICENSE_SETUP_UNAVAILABLE','Native SDK storage/config could not initialize.');
   const denied=await fetch(origin+'/api/license/activate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:'invalid-key'})});assert.equal(denied.status,403);
   console.log(JSON.stringify({target:`${process.platform}-${process.arch}`,version,sha256:artifact.sha256,bundledNode:true,startScript:true,frontend:true,network:true,licenseBoundary:true}));
-} finally { if(process.platform==='win32')execFileSync(join(process.env.SystemRoot,'System32','taskkill.exe'),['/pid',String(child.pid),'/T','/F']);else child.kill('SIGTERM'); }
+} finally { if(process.platform==='win32')execFileSync(join(process.env.SystemRoot,'System32','taskkill.exe'),['/pid',String(child.pid),'/T','/F']);else {try{process.kill(-child.pid,'SIGTERM');}catch{/* already stopped */}} }
