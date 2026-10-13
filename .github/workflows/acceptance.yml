@@ -1,0 +1,25 @@
+name: Native portable acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published version to test
+        default: '1.0.0'
+        required: true
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-14, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node smoke.mjs
+        env:
+          BBD_VERSION: ${{ inputs.version }}
