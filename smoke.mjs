@@ -1,0 +1,52 @@
+// This smoke harness may be published in the downloads repository. No app source or credentials.
+import { createHash } from 'node:crypto';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import assert from 'node:assert/strict';
+const version = process.env.BBD_VERSION ?? '1.0.0';
+assert.match(version, /^\d+\.\d+\.\d+$/);
+const base = `https://github.com/Soravit-Ice/brain-box-duel-releases/releases/download/v${version}`;
+const response = await fetch(`${base}/release-manifest.json`);
+assert.equal(response.status, 200);
+const manifest = await response.json();
+const platform = process.platform === 'darwin' ? 'MACOS' : 'WINDOWS';
+const architecture = process.arch === 'arm64' ? 'ARM64' : 'X64';
+const artifact = manifest.artifacts.find(a => a.platform === platform && a.architecture === architecture);
+assert.ok(artifact);
+assert.equal(artifact.deliveryType, 'NODE_PACKAGE');
+assert.equal(artifact.codeSigned, false);
+const bytes = new Uint8Array(await (await fetch(`${base}/${artifact.fileName}`)).arrayBuffer());
+assert.equal(bytes.length, artifact.fileSize);
+assert.equal(createHash('sha256').update(bytes).digest('hex'), artifact.sha256);
+const destination = resolve('portable acceptance with spaces');
+await mkdir(destination, {recursive: true});
+const zip = join(destination, artifact.fileName);
+await writeFile(zip, bytes);
+if (process.platform === 'win32') execFileSync('powershell.exe', ['-NoProfile','-NonInteractive','-Command', 'Expand-Archive -LiteralPath $env:BBD_ZIP -DestinationPath $env:BBD_DEST -Force'], { env: {...process.env, BBD_ZIP: zip, BBD_DEST: destination} });
+else execFileSync('/usr/bin/unzip', ['-q',zip,'-d',destination]);
+const app = join(destination, artifact.fileName.replace(/\.zip$/, ''));
+const info = JSON.parse(await readFile(join(app, 'package-info.json'), 'utf8'));
+assert.equal(info.preview, false);
+assert.equal(info.version, version);
+const command = process.platform === 'win32' ? join(process.env.SystemRoot, 'System32', 'cmd.exe') : '/bin/bash';
+const args = process.platform === 'win32' ? ['/d','/c',`"${join(app,'Start Windows.cmd')}"`] : [join(app,'Start macOS.command')];
+const child = spawn(command,args,{cwd:destination,env:{...process.env,PATH:'',BRAINBOX_NO_BROWSER:'1'},stdio:['ignore','pipe','pipe']});
+let output=''; child.stdout.on('data', b=>output+=b); child.stderr.on('data',b=>output+=b);
+try {
+  let origin;
+  for (let i=0;i<150;i++) { origin=output.match(/http:\/\/localhost:\d+/)?.[0]; if(origin)break; if(child.exitCode!==null)throw Error('Portable launcher exited before readiness.'); await new Promise(r=>setTimeout(r,100)); }
+  assert.ok(origin, 'Launcher did not become ready.');
+  assert.equal((await fetch(origin+'/health').then(r=>r.json())).app,'brain-box-duel');
+  const html=await fetch(origin).then(r=>r.text()); assert.match(html, /<div id="root"/);
+  const script=html.match(/src="([^"]+\.js)"/); assert.ok(script);
+  assert.equal((await fetch(origin+script[1])).status,200);
+  const net=await fetch(origin+'/api/network').then(r=>r.json());
+  assert.equal(new URL(net.webOrigin).port,new URL(origin).port);
+  const access=await fetch(origin+'/api/license').then(r=>r.json());
+  assert.equal(access.valid,false);
+  assert.equal(access.development,false);
+  assert.notEqual(access.reason,'LICENSE_SETUP_UNAVAILABLE','Native SDK storage/config could not initialize.');
+  const denied=await fetch(origin+'/api/license/activate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:'invalid-key'})});assert.equal(denied.status,403);
+  console.log(JSON.stringify({target:`${process.platform}-${process.arch}`,version,sha256:artifact.sha256,bundledNode:true,startScript:true,frontend:true,network:true,licenseBoundary:true}));
+} finally { if(process.platform==='win32')execFileSync(join(process.env.SystemRoot,'System32','taskkill.exe'),['/pid',String(child.pid),'/T','/F']);else child.kill('SIGTERM'); }
